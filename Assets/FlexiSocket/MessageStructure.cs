@@ -23,11 +23,14 @@
 // *************************************************************************************************
 // Project source: https://github.com/theoxuan/FlexiSocket
 
+using System;
+
 namespace FlexiFramework.Networking
 {
     /// <summary>
     /// Message structure type
     /// </summary>
+    [Obsolete]
     public enum MessageStructure
     {
         /// <summary>
