@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 
@@ -35,6 +36,7 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncReceive : AsyncIOOperation
     {
+        private readonly IProtocol _protocol;
         private readonly ReceivedCallback _callback;
         private readonly ReceivedStringCallback _stringCallback;
         private readonly string _endTag;
@@ -83,7 +85,56 @@ namespace FlexiFramework.Networking
 
         protected internal override IEnumerator GetEnumerator()
         {
-            switch (structure)
+            using (MemoryStream stream = new MemoryStream())
+            {
+                var buffer = new byte[8192];
+                do
+                {
+                    try
+                    {
+                        SocketError error;
+                        ar = socket.BeginReceive(buffer, 0, buffer.Length,
+                            SocketFlags.None, out error, null, null);
+                        Error = error;
+
+                        if (Error != SocketError.Success)
+                        {
+                            if (_callback != null) _callback(false, Exception, Error, null);
+                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                            yield break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Exception = ex;
+                        if (_callback != null) _callback(false, Exception, Error, null);
+                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                        yield break;
+                    }
+
+                    while (!ar.IsCompleted)
+                        yield return null;
+
+                    try
+                    {
+                        var length = socket.EndReceive(ar);
+                        stream.Write(buffer, 0, length);
+                    }
+                    catch (Exception ex)
+                    {
+                        Exception = ex;
+                        if (_callback != null) _callback(false, Exception, Error, null);
+                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                        yield break;
+                    }
+
+                } while (!_protocol.CheckComplete(stream));
+
+                Data = _protocol.Decode(stream);
+            }
+
+
+            /*switch (structure)
             {
                 case MessageStructure.LengthPrefixed:
                 {
@@ -293,7 +344,7 @@ namespace FlexiFramework.Networking
                     break;
                 default:
                     throw new ArgumentOutOfRangeException();
-            }
+            }*/
 
             if (_callback != null) _callback(true, Exception, Error, Data);
             if (_stringCallback != null) _stringCallback(true, Exception, Error, Encoding.UTF8.GetString(Data));

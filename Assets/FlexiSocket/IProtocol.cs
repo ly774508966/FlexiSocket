@@ -24,7 +24,7 @@
 // Project source: https://github.com/theoxuan/FlexiSocket
 
 using System;
-using System.Linq;
+using System.IO;
 using System.Text;
 
 namespace FlexiFramework.Networking
@@ -34,16 +34,16 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Check message
         /// </summary>
-        /// <param name="buffer">Message buffer</param>
+        /// <param name="stream">Message stream</param>
         /// <returns>True if complete</returns>
-        bool CheckComplete(byte[] buffer);
+        bool CheckComplete(MemoryStream stream);
 
         /// <summary>
         /// Decode message
         /// </summary>
-        /// <param name="buffer">Message buffer</param>
+        /// <param name="stream">Message stream</param>
         /// <returns>Decoded data</returns>
-        byte[] Decode(byte[] buffer);
+        byte[] Decode(MemoryStream stream);
 
         /// <summary>
         /// Encode message
@@ -55,14 +55,40 @@ namespace FlexiFramework.Networking
 
     public sealed class Protocol
     {
+        /// <summary>
+        /// Head + Body structure type
+        /// </summary>
+        /// <remarks>
+        /// The message head is a 4-byte int type which represents the length of the coming message
+        /// </remarks>
         public static readonly IProtocol LengthPrefix = new LengthPrefixProtocol();
+
+        /// <summary>
+        /// Body + TerminatTag structure type
+        /// </summary>
+        /// <remarks>
+        /// The message tail is <c>&lt;EOF&gt;</c> which represents the end of a string message
+        /// </remarks>
         public static readonly IProtocol StringTerminated = new StringTerminatedProtocol("<EOF>");
 
+        /// <summary>
+        /// Body + TerminatTag structure type
+        /// </summary>
+        /// <param name="tag">End tag</param>
+        /// <returns></returns>
+        /// <remarks>
+        /// The message tail is a user-defined tag which represents the end of a string message
+        /// </remarks>
         public static IProtocol StringTerminatedBy(string tag)
         {
             return new StringTerminatedProtocol(tag);
         }
 
+        /// <summary>
+        /// Fixed-length structure type
+        /// </summary>
+        /// <param name="length">Message length</param>
+        /// <returns></returns>
         public static IProtocol FixedLengthOf(int length)
         {
             return new FixedLengthProtocol(length);
@@ -70,30 +96,35 @@ namespace FlexiFramework.Networking
 
         private sealed class LengthPrefixProtocol : IProtocol
         {
-            
             #region Implementation of IProtocol
 
-            public bool CheckComplete(byte[] buffer)
+            public bool CheckComplete(MemoryStream stream)
             {
-                if (buffer.Length < sizeof (int))
+                if (stream.Length < sizeof (int))
                     return false;
-                var length = BitConverter.ToInt32(buffer, 0);
-                return buffer.Length >= length + sizeof (int);
+                var position = stream.Position;
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                var length = reader.ReadInt32();
+                stream.Seek(position, SeekOrigin.Begin);
+                return stream.Length >= length + sizeof (int);
             }
 
-            public byte[] Decode(byte[] buffer)
+            public byte[] Decode(MemoryStream stream)
             {
-                if (buffer.Length < sizeof (int))
+                if (stream.Length < sizeof (int))
                     throw new InvalidOperationException();
-                var length = BitConverter.ToInt32(buffer, 0);
-                if(length + sizeof(int) > buffer.Length)
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                var length = reader.ReadInt32();
+                if (length + sizeof (int) > stream.Length)
                     throw new InvalidOperationException();
-                return buffer.Skip(sizeof (int)).Take(length).ToArray();
+                return reader.ReadBytes(length);
             }
 
             public byte[] Encode(byte[] buffer)
             {
-                var output = new byte[buffer.Length + sizeof(int)];
+                var output = new byte[buffer.Length + sizeof (int)];
                 var prefix = BitConverter.GetBytes(buffer.Length);
                 prefix.CopyTo(output, 0);
                 buffer.CopyTo(output, prefix.Length);
@@ -114,15 +145,22 @@ namespace FlexiFramework.Networking
 
             #region Implementation of IProtocol
 
-            public bool CheckComplete(byte[] buffer)
+            public bool CheckComplete(MemoryStream stream)
             {
-                return BitConverter.ToString(buffer).EndsWith(tag);
+                var position = stream.Position;
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new StreamReader(stream);
+                var text = reader.ReadToEnd();
+                stream.Seek(position, SeekOrigin.Begin);
+                return text.EndsWith(tag);
             }
 
-            public byte[] Decode(byte[] buffer)
+            public byte[] Decode(MemoryStream stream)
             {
-                var data =  Encoding.UTF8.GetString(buffer);
-                if(!data.EndsWith(tag))
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new StreamReader(stream);
+                var data = reader.ReadToEnd();
+                if (!data.EndsWith(tag))
                     throw new InvalidOperationException();
                 return Encoding.UTF8.GetBytes(data.Substring(0, data.Length - tag.Length));
             }
@@ -146,22 +184,23 @@ namespace FlexiFramework.Networking
 
             #region Implementation of IProtocol
 
-            public bool CheckComplete(byte[] buffer)
+            public bool CheckComplete(MemoryStream stream)
             {
-                return buffer.Length >= length;
+                return stream.Length >= length;
             }
 
-            public byte[] Decode(byte[] buffer)
+            public byte[] Decode(MemoryStream stream)
             {
-                if (buffer.Length < length)
+                if (stream.Length < length)
                     throw new InvalidOperationException();
-
-                return buffer.Take(length).ToArray();
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                return reader.ReadBytes(length);
             }
 
             public byte[] Encode(byte[] buffer)
             {
-                if(buffer.Length > length)
+                if (buffer.Length > length)
                     throw new InvalidOperationException();
                 var data = new byte[length];
                 buffer.CopyTo(data, 0);
