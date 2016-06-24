@@ -18,7 +18,7 @@ public class Client : MonoBehaviour
     // Use this for initialization
     private IEnumerator Start()
     {
-        _client = FlexiSocket.Create("127.0.0.1", 1366);
+        _client = FlexiSocket.Create("127.0.0.1", 1366, Protocol.LengthPrefix);
         _client.Connected += OnConnected;
         _client.Disconnected += OnDisconnected;
         _client.Received += OnReceived;

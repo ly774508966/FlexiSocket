@@ -16,7 +16,7 @@ public class AsyncClient : MonoBehaviour
 
     private IEnumerator Start()
     {
-        _client = FlexiSocket.Create("127.0.0.1", 1366);
+        _client = FlexiSocket.Create("127.0.0.1", 1366, Protocol.LengthPrefix);
         yield return new WaitForSeconds(1); // wait for server to startup
 
         var connect = _client.ConnectAsync();

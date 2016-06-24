@@ -26,7 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -38,8 +38,7 @@ namespace FlexiFramework.Networking
     {
         private readonly Socket _socket;
         private readonly bool _ipv6;
-        private readonly MessageStructure _structure;
-        private readonly string _endTag;
+        private readonly IProtocol _protocol;
 
         public int Port { get; private set; }
         public event ClosedCallback Closed;
@@ -58,8 +57,8 @@ namespace FlexiFramework.Networking
 
         public event SentCallback Sent;
 
-        private FlexiSocket(string ip, int port, MessageStructure structure, string endTag)
-            : this(port, structure, endTag)
+        private FlexiSocket(string ip, int port, IProtocol protocol)
+            : this(port, protocol)
         {
             IP = ip;
         }
@@ -67,7 +66,7 @@ namespace FlexiFramework.Networking
         void ISocketClient.Connect()
         {
             var args = new SocketAsyncEventArgs();
-            args.Completed += OnConnected;
+            args.Completed += ConnectCallback;
             args.UserToken = _socket;
             args.RemoteEndPoint = new IPEndPoint(IPAddress.Parse(IP), Port);
             try
@@ -76,40 +75,29 @@ namespace FlexiFramework.Networking
             }
             catch (Exception ex)
             {
-                if (Connected != null)
-                    Connected(false, ex);
+                OnConnected(false, ex);
             }
         }
 
-        private void OnConnected(object sender, SocketAsyncEventArgs args)
+        private void ConnectCallback(object sender, SocketAsyncEventArgs args)
         {
             var socket = (Socket) args.UserToken;
-            switch (_structure)
-            {
-                case MessageStructure.LengthPrefixed:
-                    StartReceive(null, new StateObject(socket));
-                    break;
-                case MessageStructure.StringTerminated:
-                    StartReceive(null, new StateObject(socket, new StringBuilder()));
-                    break;
-                case MessageStructure.Custom:
-                    StartReceive(null, new StateObject(socket, new byte[8192]));
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
-            if (Connected != null)
-                Connected(true, null);
+            StartReceive(null, new StateObject(socket, _protocol));
+            OnConnected(true, null);
         }
 
         AsyncConnect ISocketClient.ConnectAsync()
         {
-            return new AsyncConnect(_socket, new IPEndPoint(IPAddress.Parse(IP), Port), Connected);
+            var @async = new AsyncConnect(_socket, new IPEndPoint(IPAddress.Parse(IP), Port));
+            @async.Completed += OnConnected;
+            return @async;
         }
 
         AsyncReceive ISocketClient.ReceiveAsync()
         {
-            return new AsyncReceive(_socket, _structure, Received, ReceivedString, _endTag);
+            var @async = new AsyncReceive(_socket, _protocol);
+            @async.Completed += OnReceived;
+            return @async;
         }
 
         private void StartReceive(SocketAsyncEventArgs args, StateObject state)
@@ -117,106 +105,48 @@ namespace FlexiFramework.Networking
             if (args == null)
             {
                 args = new SocketAsyncEventArgs();
-                args.Completed += OnReceived;
+                args.Completed += ReceiveCallback;
                 args.UserToken = state;
-                switch (_structure)
-                {
-                    case MessageStructure.LengthPrefixed:
-                        args.SetBuffer(state.head, 0, state.head.Length);
-                        break;
-                    case MessageStructure.StringTerminated:
-                    case MessageStructure.Custom:
-                        args.SetBuffer(state.body, 0, state.body.Length);
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                args.SetBuffer(state.buffer, 0, state.buffer.Length);
             }
             try
             {
                 if (!state.handler.ReceiveAsync(args))
-                    OnReceived(null, args);
+                    ReceiveCallback(null, args);
             }
             catch (Exception ex)
             {
-                if (Received != null) Received(false, ex, args.SocketError, null);
+                state.Dispose();
+                OnReceived(false, ex, args.SocketError, null);
             }
         }
 
-        private void OnReceived(object sender, SocketAsyncEventArgs args)
+        private void ReceiveCallback(object sender, SocketAsyncEventArgs args)
         {
+            var state = (StateObject) args.UserToken;
             if (args.SocketError != SocketError.Success)
             {
-                if (Received != null)
-                    Received(false, null, args.SocketError, null);
+                state.Dispose();
+                OnReceived(false, null, args.SocketError, null);
             }
-            else if (args.BytesTransferred > 0)
+            else if (args.BytesTransferred <= 0)
             {
-                var state = (StateObject) args.UserToken;
-                switch (_structure)
-                {
-                    case MessageStructure.LengthPrefixed:
-                    {
-                        state.length += args.BytesTransferred;
-                        if (state.length < state.head.Length) //unable to decide packet size(incomplete head)
-                            StartReceive(args, state);
-                        else
-                        {
-                            if (state.body == null) //head received
-                            {
-                                state.body = new byte[BitConverter.ToInt32(state.head, 0)];
-                                args.SetBuffer(state.body, 0, state.body.Length);
-                                StartReceive(args, state);
-                            }
-                            else if (state.length < state.body.Length + state.head.Length) //incomplete packet
-                                StartReceive(args, state);
-                            else
-                            {
-                                if (Received != null) //dispatch message
-                                    Received(true, null, args.SocketError, state.body);
-                                StartReceive(null, new StateObject(state.handler));
-                            }
-                        }
-                    }
-                        break;
-                    case MessageStructure.StringTerminated:
-                    {
-                        state.builder.Append(Encoding.UTF8.GetString(state.body, 0, args.BytesTransferred));
-                        var content = state.builder.ToString();
-                        if (content.EndsWith(_endTag)) //check endtag
-                        {
-                            if (ReceivedString != null)
-                                ReceivedString(true, null, args.SocketError,
-                                    content.Substring(0, content.Length - _endTag.Length));
-                            if (Received != null)
-                                Received(true, null, args.SocketError,
-                                    Encoding.UTF8.GetBytes(content.Substring(0, content.Length - _endTag.Length)));
-
-                            StartReceive(null, new StateObject(state.handler, new StringBuilder()));
-                        }
-                        else
-                        {
-                            StartReceive(null, new StateObject(state.handler, state.builder));
-                        }
-                    }
-                        break;
-                    case MessageStructure.Custom:
-                    {
-                        if (Received != null) //dispatch message
-                        {
-                            var buffer = state.body.Take(args.BytesTransferred).ToArray();
-                            Received(true, null, args.SocketError, buffer);
-                        }
-                        StartReceive(null, new StateObject(state.handler, new byte[8192]));
-                    }
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                state.Dispose();
+                Close();
             }
             else
             {
-                Close(); //shutdown
+                state.stream.Write(state.buffer, 0, args.BytesTransferred);
+                if (!state.protocol.CheckComplete(state.stream)) //incompleted
+                    StartReceive(args, state);
+                else //completed
+                {
+                    var data = state.protocol.Decode(state.stream);
+                    state.Dispose();
+                    OnReceived(true, null, args.SocketError, data);
+                    OnReceivedString(true, null, args.SocketError, data);
+                    StartReceive(null, new StateObject(state.handler, state.protocol));
+                }
             }
         }
 
@@ -227,26 +157,7 @@ namespace FlexiFramework.Networking
 
         public void Send(byte[] message)
         {
-            switch (_structure)
-            {
-                case MessageStructure.LengthPrefixed:
-                    var length = message.Length;
-                    var head = BitConverter.GetBytes(length);
-                    var state = new StateObject(_socket, head, message);
-                    StartSend(state, null);
-                    break;
-                case MessageStructure.StringTerminated:
-                    var msg = Encoding.UTF8.GetString(message);
-                    if (!msg.EndsWith(_endTag))
-                        msg += _endTag;
-                    StartSend(new StateObject(_socket, Encoding.UTF8.GetBytes(msg)), null);
-                    break;
-                case MessageStructure.Custom:
-                    StartSend(new StateObject(_socket, message), null);
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
+            StartSend(new StateObject(_socket, _protocol, message), null);
         }
 
         private void StartSend(StateObject state, SocketAsyncEventArgs args)
@@ -254,22 +165,8 @@ namespace FlexiFramework.Networking
             if (args == null)
             {
                 args = new SocketAsyncEventArgs();
-                switch (_structure)
-                {
-                    case MessageStructure.LengthPrefixed:
-                        var buffer = new byte[state.head.Length + state.body.Length];
-                        state.head.CopyTo(buffer, 0);
-                        state.body.CopyTo(buffer, state.head.Length);
-                        args.SetBuffer(buffer, 0, buffer.Length);
-                        break;
-                    case MessageStructure.StringTerminated:
-                    case MessageStructure.Custom:
-                        args.SetBuffer(state.body, 0, state.body.Length);
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
-                args.Completed += OnSent;
+                args.SetBuffer(state.stream.GetBuffer(), 0, (int) state.stream.Length);
+                args.Completed += SentCallback;
                 args.UserToken = state;
             }
 
@@ -279,77 +176,76 @@ namespace FlexiFramework.Networking
             }
             catch (Exception ex)
             {
-                if (Sent != null)
-                    Sent(false, ex, args.SocketError);
+                state.Dispose();
+                OnSent(false, ex, args.SocketError);
             }
         }
 
         AsyncSend ISocketClient.SendAsync(byte[] message)
         {
-            return new AsyncSend(_socket, _structure, message, Sent);
+            var @async = new AsyncSend(_socket, _protocol, message);
+            @async.Completed += OnSent;
+            return @async;
         }
 
         AsyncSend ISocketClient.SendAsync(string message)
         {
-            if (!message.EndsWith(_endTag))
-                message += _endTag;
             return ((ISocketClient) this).SendAsync(Encoding.UTF8.GetBytes(message));
         }
 
-        private void OnSent(object sender, SocketAsyncEventArgs args)
+        private void SentCallback(object sender, SocketAsyncEventArgs args)
         {
             var state = (StateObject) args.UserToken;
             if (args.SocketError == SocketError.Success)
             {
-                if (args.BytesTransferred > 0)
+                if (args.BytesTransferred <= 0)
                 {
-                    state.length += args.BytesTransferred;
-                    if (state.length < state.head.Length + state.body.Length) //not finished yet
-                    {
-                        StartSend(state, args);
-                    }
-                    else
-                    {
-                        if (Sent != null)
-                            Sent(true, null, args.SocketError);
-                    }
+                    state.Dispose();
+                    Close();
                 }
                 else
                 {
-                    Close();
+                    state.stream.Position += args.BytesTransferred;
+                    if (state.stream.Position < state.stream.Length) //not finished yet
+                        StartSend(state, args);
+                    else
+                    {
+                        state.Dispose();
+                        OnSent(true, null, args.SocketError);
+                    }
                 }
             }
             else
             {
-                if (Sent != null)
-                    Sent(false, null, args.SocketError);
+                state.Dispose();
+                OnSent(false, null, args.SocketError);
             }
         }
 
         void ISocketClient.Disconnect()
         {
             var args = new SocketAsyncEventArgs();
-            args.Completed += OnDisconnected;
+            args.Completed += DisconnectCallback;
             try
             {
                 _socket.DisconnectAsync(args);
             }
             catch (Exception ex)
             {
-                if (Disconnected != null)
-                    Disconnected(false, ex);
+                OnDisconnected(false, ex);
             }
         }
 
         AsyncDisconnect ISocketClient.DisconnectAsync()
         {
-            return new AsyncDisconnect(_socket, Disconnected);
+            var @async = new AsyncDisconnect(_socket);
+            @async.Completed += OnDisconnected;
+            return @async;
         }
 
-        private void OnDisconnected(object sender, SocketAsyncEventArgs args)
+        private void DisconnectCallback(object sender, SocketAsyncEventArgs args)
         {
-            if (Disconnected != null)
-                Disconnected(true, null);
+            OnDisconnected(true, null);
         }
 
         #endregion
@@ -388,11 +284,10 @@ namespace FlexiFramework.Networking
 
         public event SentToClientCallback SentToClient;
 
-        private FlexiSocket(int port, MessageStructure structure, string endTag)
+        private FlexiSocket(int port, IProtocol protocol)
         {
             Port = port;
-            _structure = structure;
-            _endTag = endTag;
+            _protocol = protocol;
             _socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
             try
             {
@@ -407,9 +302,10 @@ namespace FlexiFramework.Networking
             }
         }
 
-        private FlexiSocket(Socket socket)
+        private FlexiSocket(Socket socket, IProtocol protocol)
         {
             _socket = socket;
+            _protocol = protocol;
         }
 
         void ISocketServer.StartListen(int backlog)
@@ -433,8 +329,6 @@ namespace FlexiFramework.Networking
 
         void ISocketServer.SendToAll(string message)
         {
-            if (!message.EndsWith(_endTag))
-                message += _endTag;
             ((ISocketServer) this).SendToAll(Encoding.UTF8.GetBytes(message));
         }
 
@@ -443,7 +337,7 @@ namespace FlexiFramework.Networking
             if (args == null)
             {
                 args = new SocketAsyncEventArgs();
-                args.Completed += OnAccepted;
+                args.Completed += AcceptCallback;
             }
             else
             {
@@ -452,27 +346,14 @@ namespace FlexiFramework.Networking
             _socket.AcceptAsync(args);
         }
 
-        private void OnAccepted(object sender, SocketAsyncEventArgs args)
+        private void AcceptCallback(object sender, SocketAsyncEventArgs args)
         {
             if (args.SocketError == SocketError.Success && args.AcceptSocket != null)
             {
-                var client = new FlexiSocket(args.AcceptSocket);
+                var client = new FlexiSocket(args.AcceptSocket, _protocol);
                 lock (_clients)
                     _clients.Add(client);
-                switch (_structure)
-                {
-                    case MessageStructure.LengthPrefixed:
-                        StartReceive(null, new StateObject(client._socket));
-                        break;
-                    case MessageStructure.StringTerminated:
-                        StartReceive(null, new StateObject(client._socket, new StringBuilder()));
-                        break;
-                    case MessageStructure.Custom:
-                        StartReceive(null, new StateObject(client._socket, new byte[8192]));
-                        break;
-                    default:
-                        throw new ArgumentOutOfRangeException();
-                }
+                StartReceive(null, new StateObject(_socket, _protocol));
                 if (ReceivedFromClient != null)
                     client.Received += delegate(bool success, Exception exception, SocketError error, byte[] message)
                     {
@@ -527,92 +408,117 @@ namespace FlexiFramework.Networking
             }
             finally
             {
-                if (Closed != null)
-                    Closed();
+                OnClosed();
             }
         }
 
-        /// <summary>
-        /// Create a client
-        /// </summary>
-        /// <param name="ip">Server address</param>
-        /// <param name="port">Server listening port</param>
-        /// <returns>Created client</returns>
-        public static ISocketClient Create(string ip, int port)
-        {
-            return Create(ip, port, MessageStructure.LengthPrefixed);
-        }
 
         /// <summary>
         /// Create a client
         /// </summary>
         /// <param name="ip">Server address</param>
         /// <param name="port">Server listening port</param>
-        /// <param name="structure"></param>
-        /// <param name="endTag"></param>
+        /// <param name="protocol">Protocol</param>
         /// <returns>Created client</returns>
-        public static ISocketClient Create(string ip, int port, MessageStructure structure, string endTag = "<EOF>")
+        public static ISocketClient Create(string ip, int port, IProtocol protocol)
         {
-            return new FlexiSocket(ip, port, structure, endTag);
+            return new FlexiSocket(ip, port, protocol);
         }
+
 
         /// <summary>
         /// Create a server
         /// </summary>
         /// <param name="port">Listening port</param>
+        /// <param name="protocol">Protocol</param>
         /// <returns>Created server</returns>
-        public static ISocketServer Create(int port)
+        public static ISocketServer Create(int port, IProtocol protocol)
         {
-            return Create(port, MessageStructure.LengthPrefixed);
+            return new FlexiSocket(port, protocol);
         }
 
-        /// <summary>
-        /// Create a server
-        /// </summary>
-        /// <param name="port">Listening port</param>
-        /// <param name="structure"></param>
-        /// <param name="endTag"></param>
-        /// <returns>Created server</returns>
-        public static ISocketServer Create(int port, MessageStructure structure, string endTag = "<EOF>")
+        private void OnClosed()
         {
-            return new FlexiSocket(port, structure, endTag);
+            var handler = Closed;
+            if (handler != null) handler();
         }
 
-        private class StateObject
+        private void OnConnected(bool success, Exception exception)
+        {
+            var handler = Connected;
+            if (handler != null) handler(success, exception);
+        }
+
+        private void OnReceived(bool success, Exception exception, SocketError error, byte[] message)
+        {
+            var handler = Received;
+            if (handler != null) handler(success, exception, error, message);
+        }
+
+        private void OnReceivedString(bool success, Exception exception, SocketError error, byte[] message)
+        {
+            var handler = ReceivedString;
+            if (handler != null) handler(success, exception, error, Encoding.UTF8.GetString(message));
+        }
+
+        private void OnDisconnected(bool success, Exception exception)
+        {
+            var handler = Disconnected;
+            if (handler != null) handler(success, exception);
+        }
+
+        private void OnSent(bool success, Exception exception, SocketError error)
+        {
+            var handler = Sent;
+            if (handler != null) handler(success, exception, error);
+        }
+
+        private class StateObject : IDisposable
         {
             public readonly Socket handler;
-            public readonly StringBuilder builder;
-            public readonly byte[] head;
-            public byte[] body;
-            public int length;
+            public readonly MemoryStream stream;
+            public readonly IProtocol protocol;
+            public readonly byte[] buffer;
 
-            public StateObject(Socket handler)
+            private StateObject(Socket handler, IProtocol protocol, MemoryStream stream, byte[] buffer)
             {
                 this.handler = handler;
-                head = new byte[sizeof (int)];
+                this.protocol = protocol;
+                this.stream = stream;
+                this.buffer = buffer;
             }
 
-            public StateObject(Socket handler, byte[] body)
+            /// <summary>
+            /// Receive state
+            /// </summary>
+            /// <param name="handler"></param>
+            /// <param name="protocol"></param>
+            public StateObject(Socket handler, IProtocol protocol)
+                : this(handler, protocol, new MemoryStream(), new byte[8192])
             {
-                this.handler = handler;
-                this.body = body;
-                head = new byte[0];
             }
 
-            public StateObject(Socket handler, byte[] head, byte[] body)
+            /// <summary>
+            /// Send state
+            /// </summary>
+            /// <param name="handler"></param>
+            /// <param name="protocol"></param>
+            /// <param name="buffer"></param>
+            public StateObject(Socket handler, IProtocol protocol, byte[] buffer)
+                : this(handler, protocol, null, null)
             {
-                this.handler = handler;
-                this.body = body;
-                this.head = head;
+                var data = protocol.Encode(buffer);
+                stream = new MemoryStream(data, 0, data.Length, true, true);
             }
 
-            public StateObject(Socket handler, StringBuilder builder)
+            #region Implementation of IDisposable
+
+            public void Dispose()
             {
-                this.handler = handler;
-                this.builder = builder;
-                body = new byte[8192];
-                head = new byte[0];
+                stream.Dispose();
             }
+
+            #endregion
         }
     }
 }

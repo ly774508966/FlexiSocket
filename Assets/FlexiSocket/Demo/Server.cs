@@ -16,7 +16,7 @@ public class Server : MonoBehaviour
     // Use this for initialization
     private IEnumerator Start()
     {
-        _server = FlexiSocket.Create(1366);
+        _server = FlexiSocket.Create(1366, Protocol.LengthPrefix);
         _server.ClientConnected += OnClientConnected;
         _server.ClientDisconnected += OnClientDisconnected;
         _server.ReceivedFromClient += OnReceivedFromClient;

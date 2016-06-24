@@ -36,10 +36,8 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncReceive : AsyncIOOperation
     {
-        private readonly IProtocol _protocol;
-        private readonly ReceivedCallback _callback;
-        private readonly ReceivedStringCallback _stringCallback;
-        private readonly string _endTag;
+        public event ReceivedCallback Completed;
+        public event ReceivedStringCallback CompletedAsString;
 
         /// <summary>
         /// Received data
@@ -54,13 +52,9 @@ namespace FlexiFramework.Networking
             get { return Encoding.UTF8.GetString(Data); }
         }
 
-        public AsyncReceive(Socket socket, MessageStructure structure, ReceivedCallback callback,
-            ReceivedStringCallback stringCallback, string endTag)
-            : base(socket, structure)
+        public AsyncReceive(Socket socket, IProtocol protocol) : base(socket, protocol)
         {
-            _callback = callback;
-            _stringCallback = stringCallback;
-            _endTag = endTag;
+            
         }
 
         #region Overrides of AsyncSocketOperation
@@ -85,7 +79,7 @@ namespace FlexiFramework.Networking
 
         protected internal override IEnumerator GetEnumerator()
         {
-            using (MemoryStream stream = new MemoryStream())
+            using (var stream = new MemoryStream())
             {
                 var buffer = new byte[8192];
                 do
@@ -99,16 +93,16 @@ namespace FlexiFramework.Networking
 
                         if (Error != SocketError.Success)
                         {
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                            OnCompleted(false, Exception, Error, null);
+                            OnCompletedAsString(false, Exception, Error, null);
                             yield break;
                         }
                     }
                     catch (Exception ex)
                     {
                         Exception = ex;
-                        if (_callback != null) _callback(false, Exception, Error, null);
-                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                        OnCompleted(false, Exception, Error, null);
+                        OnCompletedAsString(false, Exception, Error, null);
                         yield break;
                     }
 
@@ -123,233 +117,32 @@ namespace FlexiFramework.Networking
                     catch (Exception ex)
                     {
                         Exception = ex;
-                        if (_callback != null) _callback(false, Exception, Error, null);
-                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
+                        OnCompleted(false, Exception, Error, null);
+                        OnCompletedAsString(false, Exception, Error, null);
                         yield break;
                     }
+                } while (!Protocol.CheckComplete(stream));
 
-                } while (!_protocol.CheckComplete(stream));
-
-                Data = _protocol.Decode(stream);
+                Data = Protocol.Decode(stream);
             }
 
 
-            /*switch (structure)
-            {
-                case MessageStructure.LengthPrefixed:
-                {
-                    var head = new byte[sizeof (int)];
-                    while (transferedLength < head.Length)
-                    {
-                        try
-                        {
-                            SocketError error;
-                            ar = socket.BeginReceive(head, transferedLength, head.Length - transferedLength,
-                                SocketFlags.None, out error, null, null);
-                            Error = error;
-
-                            if (Error != SocketError.Success)
-                            {
-                                if (_callback != null) _callback(false, Exception, Error, null);
-                                if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                                yield break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-
-                        while (!ar.IsCompleted)
-                            yield return null;
-
-                        try
-                        {
-                            transferedLength += socket.EndReceive(ar);
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-                    }
-
-                    var body = new byte[BitConverter.ToInt32(head, 0)];
-                    while (transferedLength < head.Length + body.Length)
-                    {
-                        try
-                        {
-                            SocketError error;
-                            ar = socket.BeginReceive(body, transferedLength - head.Length,
-                                body.Length - transferedLength + head.Length, SocketFlags.None, out error, null, null);
-                            Error = error;
-
-                            if (Error != SocketError.Success)
-                            {
-                                if (_callback != null) _callback(false, Exception, Error, null);
-                                if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                                yield break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-
-                        while (!ar.IsCompleted)
-                            yield return null;
-
-                        try
-                        {
-                            SocketError error;
-                            transferedLength += socket.EndReceive(ar, out error);
-                            Error = error;
-
-                            if (Error != SocketError.Success)
-                            {
-                                if (_callback != null) _callback(false, Exception, Error, null);
-                                if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                                yield break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-                    }
-
-                    Data = body;
-                }
-                    break;
-                case MessageStructure.StringTerminated:
-                {
-                    var builder = new StringBuilder();
-                    while (!builder.ToString().EndsWith(_endTag))
-                    {
-                        var buffer = new byte[8192];
-                        try
-                        {
-                            SocketError error;
-                            ar = socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, out error, null, null);
-                            Error = error;
-
-                            if (Error != SocketError.Success)
-                            {
-                                if (_callback != null) _callback(false, Exception, Error, null);
-                                if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                                yield break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-
-                        while (!ar.IsCompleted)
-                            yield return null;
-
-                        int length;
-                        try
-                        {
-                            SocketError error;
-                            length = socket.EndReceive(ar, out error);
-                            transferedLength += length;
-                            Error = error;
-
-                            if (Error != SocketError.Success)
-                            {
-                                if (_callback != null) _callback(false, Exception, Error, null);
-                                if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                                yield break;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Exception = ex;
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-
-                        builder.Append(Encoding.UTF8.GetString(buffer, 0, length));
-                    }
-                    Data = Encoding.UTF8.GetBytes(builder.ToString(0, builder.Length - _endTag.Length));
-                }
-                    break;
-                case MessageStructure.Custom:
-
-                {
-                    var body = new byte[8192];
-                    try
-                    {
-                        SocketError error;
-                        ar = socket.BeginReceive(body, 0, body.Length, SocketFlags.None, out error, null, null);
-                        Error = error;
-
-                        if (Error != SocketError.Success)
-                        {
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Exception = ex;
-                        if (_callback != null) _callback(false, Exception, Error, null);
-                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                        yield break;
-                    }
-
-                    while (!ar.IsCompleted)
-                        yield return null;
-
-                    try
-                    {
-                        SocketError error;
-                        transferedLength += socket.EndReceive(ar, out error);
-                        Error = error;
-
-                        if (Error != SocketError.Success)
-                        {
-                            if (_callback != null) _callback(false, Exception, Error, null);
-                            if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                            yield break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Exception = ex;
-                        if (_callback != null) _callback(false, Exception, Error, null);
-                        if (_stringCallback != null) _stringCallback(false, Exception, Error, null);
-                        yield break;
-                    }
-
-                    Data = body;
-                }
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }*/
-
-            if (_callback != null) _callback(true, Exception, Error, Data);
-            if (_stringCallback != null) _stringCallback(true, Exception, Error, Encoding.UTF8.GetString(Data));
+            OnCompleted(true, Exception, Error, Data);
+            OnCompletedAsString(true, Exception, Error, Encoding.UTF8.GetString(Data));
         }
 
         #endregion
+
+        private void OnCompleted(bool success, Exception exception, SocketError error, byte[] message)
+        {
+            var handler = Completed;
+            if (handler != null) handler(success, exception, error, message);
+        }
+
+        private void OnCompletedAsString(bool success, Exception exception, SocketError error, string message)
+        {
+            var handler = CompletedAsString;
+            if (handler != null) handler(success, exception, error, message);
+        }
     }
 }

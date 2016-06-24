@@ -34,11 +34,10 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncDisconnect : AsyncSocketOperation
     {
-        private readonly DisconnectedCallback _callback;
+        public event DisconnectedCallback Completed;
 
-        public AsyncDisconnect(Socket socket, DisconnectedCallback callback) : base(socket)
+        public AsyncDisconnect(Socket socket) : base(socket)
         {
-            _callback = callback;
         }
 
         #region Overrides of AsyncSocketOperation
@@ -70,7 +69,7 @@ namespace FlexiFramework.Networking
             catch (Exception ex)
             {
                 Exception = ex;
-                if (_callback != null) _callback(false, Exception);
+                OnCompleted(false, Exception);
                 yield break;
             }
 
@@ -86,13 +85,19 @@ namespace FlexiFramework.Networking
             catch (Exception ex)
             {
                 Exception = ex;
-                if (_callback != null) _callback(false, Exception);
+                OnCompleted(false, Exception);
                 yield break;
             }
 
-            if (_callback != null) _callback(true, Exception);
+            OnCompleted(true, Exception);
         }
 
         #endregion
+
+        private void OnCompleted(bool success, Exception exception)
+        {
+            var handler = Completed;
+            if (handler != null) handler(success, exception);
+        }
     }
 }

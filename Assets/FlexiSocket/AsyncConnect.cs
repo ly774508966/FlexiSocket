@@ -36,13 +36,12 @@ namespace FlexiFramework.Networking
     public sealed class AsyncConnect : AsyncSocketOperation
     {
         private readonly EndPoint _endPoint;
-        private readonly ConnectedCallback _callback;
 
-        public AsyncConnect(Socket socket, EndPoint endPoint, ConnectedCallback callback)
-            : base(socket)
+        public event ConnectedCallback Completed;
+
+        public AsyncConnect(Socket socket, EndPoint endPoint) : base(socket)
         {
             _endPoint = endPoint;
-            _callback = callback;
         }
 
         #region Overrides of AsyncSocketOperation
@@ -74,7 +73,7 @@ namespace FlexiFramework.Networking
             catch (Exception ex)
             {
                 Exception = ex;
-                if (_callback != null) _callback(false, Exception);
+                OnCompleted(false, Exception);
                 yield break;
             }
             while (!ar.IsCompleted)
@@ -89,13 +88,19 @@ namespace FlexiFramework.Networking
             catch (Exception ex)
             {
                 Exception = ex;
-                if (_callback != null) _callback(false, Exception);
+                OnCompleted(false, Exception);
                 yield break;
             }
 
-            if (_callback != null) _callback(true, Exception);
+            OnCompleted(true, Exception);
         }
 
         #endregion
+
+        private void OnCompleted(bool success, Exception exception)
+        {
+            var handler = Completed;
+            if (handler != null) handler(success, exception);
+        }
     }
 }

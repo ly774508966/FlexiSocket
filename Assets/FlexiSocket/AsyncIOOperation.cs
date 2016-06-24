@@ -32,17 +32,16 @@ namespace FlexiFramework.Networking
     /// </summary>
     public abstract class AsyncIOOperation : AsyncSocketOperation
     {
-        protected internal int transferedLength;
-        protected internal readonly MessageStructure structure;
+        protected IProtocol Protocol { get; private set; }
 
         /// <summary>
         /// Socket error
         /// </summary>
         public SocketError Error { get; protected set; }
 
-        protected internal AsyncIOOperation(Socket socket, MessageStructure structure) : base(socket)
+        protected AsyncIOOperation(Socket socket, IProtocol protocol) : base(socket)
         {
-            this.structure = structure;
+            Protocol = protocol;
         }
     }
 }

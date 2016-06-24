@@ -34,14 +34,12 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncSend : AsyncIOOperation
     {
-        private readonly byte[] _message;
-        private readonly SentCallback _callback;
+        private readonly byte[] _buffer;
+        public event SentCallback Completed;
 
-        public AsyncSend(Socket socket, MessageStructure structure, byte[] message,
-            SentCallback callback) : base(socket, structure)
+        public AsyncSend(Socket socket, IProtocol protocol, byte[] data) : base(socket, protocol)
         {
-            _message = message;
-            _callback = callback;
+            _buffer = protocol.Encode(data);
         }
 
         #region Overrides of AsyncSocketOperation
@@ -66,45 +64,27 @@ namespace FlexiFramework.Networking
 
         protected internal override IEnumerator GetEnumerator()
         {
-            byte[] buffer;
-            switch (structure)
-            {
-                case MessageStructure.LengthPrefixed:
-                    var length = _message.Length;
-                    var head = BitConverter.GetBytes(length);
-                    buffer = new byte[length + head.Length];
-                    head.CopyTo(buffer, 0);
-                    _message.CopyTo(buffer, head.Length);
-                    break;
-                case MessageStructure.StringTerminated:
-                case MessageStructure.Custom:
-                    buffer = _message;
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
-
-            while (transferedLength < buffer.Length)
+            var length = _buffer.Length;
+            while (length > 0)
             {
                 try
                 {
                     SocketError error;
-                    ar = socket.BeginSend(buffer, transferedLength, buffer.Length - transferedLength, SocketFlags.None,
-                        out error,
-                        null,
-                        null);
+                    ar = socket.BeginSend(_buffer, _buffer.Length - length, _buffer.Length, SocketFlags.None, out error,
+                        null, null);
+
                     Error = error;
 
                     if (Error != SocketError.Success)
                     {
-                        if (_callback != null) _callback(false, Exception, Error);
+                        OnCompleted(false, Exception, Error);
                         yield break;
                     }
                 }
                 catch (Exception ex)
                 {
                     Exception = ex;
-                    if (_callback != null) _callback(false, Exception, Error);
+                    OnCompleted(false, Exception, Error);
                     yield break;
                 }
 
@@ -114,26 +94,31 @@ namespace FlexiFramework.Networking
                 try
                 {
                     SocketError error;
-                    transferedLength += socket.EndSend(ar, out error);
+                    length -= socket.EndSend(ar, out error);
                     Error = error;
 
                     if (Error != SocketError.Success)
                     {
-                        if (_callback != null) _callback(false, Exception, Error);
+                        OnCompleted(false, Exception, Error);
                         yield break;
                     }
                 }
                 catch (Exception ex)
                 {
                     Exception = ex;
-                    if (_callback != null) _callback(false, Exception, Error);
+                    OnCompleted(false, Exception, Error);
                     yield break;
                 }
             }
-
-            if (_callback != null) _callback(true, Exception, Error);
+            OnCompleted(true, Exception, Error);
         }
 
         #endregion
+
+        private void OnCompleted(bool success, Exception exception, SocketError error)
+        {
+            var handler = Completed;
+            if (handler != null) handler(success, exception, error);
+        }
     }
 }
