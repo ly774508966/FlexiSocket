@@ -508,7 +508,7 @@ namespace FlexiFramework.Networking
                 : this(handler, protocol, null, null)
             {
                 var data = protocol.Encode(buffer);
-                stream = new MemoryStream(data, 0, data.Length, true, true);
+                stream = new MemoryStream(data, 0, data.Length, false, true);
             }
 
             #region Implementation of IDisposable
