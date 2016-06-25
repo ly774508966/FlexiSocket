@@ -106,6 +106,6 @@ namespace FlexiFramework.Networking
 
         #endregion
 
-        protected internal abstract IEnumerator GetEnumerator();
+        protected abstract IEnumerator GetEnumerator();
     }
 }

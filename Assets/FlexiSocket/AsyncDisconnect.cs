@@ -60,7 +60,7 @@ namespace FlexiFramework.Networking
             }
         }
 
-        protected internal override IEnumerator GetEnumerator()
+        protected override IEnumerator GetEnumerator()
         {
             try
             {

@@ -26,11 +26,17 @@
 using System;
 using System.IO;
 using System.Text;
+using UnityEngine;
 
 namespace FlexiFramework.Networking
 {
     public interface IProtocol
     {
+        /// <summary>
+        /// Encoding
+        /// </summary>
+        Encoding Encoding { get; }
+
         /// <summary>
         /// Check message
         /// </summary>
@@ -56,6 +62,14 @@ namespace FlexiFramework.Networking
     public sealed class Protocol
     {
         /// <summary>
+        /// Default protocol
+        /// </summary>
+        /// <remarks>
+        /// No encoding/decoding and no packet checking
+        /// </remarks>
+        public static readonly IProtocol None = new DefaultProtocol();
+
+        /// <summary>
         /// Head + Body structure type
         /// </summary>
         /// <remarks>
@@ -69,19 +83,28 @@ namespace FlexiFramework.Networking
         /// <remarks>
         /// The message tail is <c>&lt;EOF&gt;</c> which represents the end of a string message
         /// </remarks>
-        public static readonly IProtocol StringTerminated = new StringTerminatedProtocol("<EOF>");
+        public static readonly IProtocol StringTerminated = new StringTerminatedProtocol("<EOF>", Encoding.UTF8);
+
+        /// <summary>
+        /// Head + Body structure type
+        /// </summary>
+        /// <remarks>
+        /// The message head is a 4-byte int type which represents the length of the coming message's length plus 4
+        /// </remarks>
+        public static readonly IProtocol Frame = new FrameProtocol();
 
         /// <summary>
         /// Body + TerminatTag structure type
         /// </summary>
         /// <param name="tag">End tag</param>
+        /// <param name="encoding">Encoding</param>
         /// <returns></returns>
         /// <remarks>
         /// The message tail is a user-defined tag which represents the end of a string message
         /// </remarks>
-        public static IProtocol StringTerminatedBy(string tag)
+        public static IProtocol StringTerminatedBy(string tag, Encoding encoding)
         {
-            return new StringTerminatedProtocol(tag);
+            return new StringTerminatedProtocol(tag, encoding);
         }
 
         /// <summary>
@@ -94,11 +117,43 @@ namespace FlexiFramework.Networking
             return new FixedLengthProtocol(length);
         }
 
+        private sealed class DefaultProtocol : IProtocol
+        {
+            #region Implementation of IProtocol
+
+            Encoding IProtocol.Encoding
+            {
+                get { return Encoding.Default;}
+            }
+
+            bool IProtocol.CheckComplete(MemoryStream stream)
+            {
+                return true;
+            }
+
+            byte[] IProtocol.Decode(MemoryStream stream)
+            {
+                return stream.ToArray();
+            }
+
+            byte[] IProtocol.Encode(byte[] buffer)
+            {
+                return buffer;
+            }
+
+            #endregion
+        }
+
         private sealed class LengthPrefixProtocol : IProtocol
         {
             #region Implementation of IProtocol
 
-            public bool CheckComplete(MemoryStream stream)
+            Encoding IProtocol.Encoding
+            {
+                get { return Encoding.UTF8; }
+            }
+
+            bool IProtocol.CheckComplete(MemoryStream stream)
             {
                 if (stream.Length < sizeof (int))
                     return false;
@@ -110,7 +165,7 @@ namespace FlexiFramework.Networking
                 return stream.Length >= length + sizeof (int);
             }
 
-            public byte[] Decode(MemoryStream stream)
+            byte[] IProtocol.Decode(MemoryStream stream)
             {
                 if (stream.Length < sizeof (int))
                     throw new InvalidOperationException();
@@ -122,12 +177,12 @@ namespace FlexiFramework.Networking
                 return reader.ReadBytes(length);
             }
 
-            public byte[] Encode(byte[] buffer)
+            byte[] IProtocol.Encode(byte[] buffer)
             {
-                var output = new byte[buffer.Length + sizeof (int)];
-                var prefix = BitConverter.GetBytes(buffer.Length);
-                prefix.CopyTo(output, 0);
-                buffer.CopyTo(output, prefix.Length);
+                var head = BitConverter.GetBytes(buffer.Length);
+                var output = new byte[head.Length + buffer.Length];
+                head.CopyTo(output, 0);
+                buffer.CopyTo(output, head.Length);
                 return output;
             }
 
@@ -136,38 +191,45 @@ namespace FlexiFramework.Networking
 
         private sealed class StringTerminatedProtocol : IProtocol
         {
-            private readonly string tag;
+            private readonly string _tag;
+            private readonly Encoding _encoding;
 
-            public StringTerminatedProtocol(string tag)
+            public StringTerminatedProtocol(string tag, Encoding encoding)
             {
-                this.tag = tag;
+                _tag = tag;
+                _encoding = encoding;
             }
 
             #region Implementation of IProtocol
 
-            public bool CheckComplete(MemoryStream stream)
+            Encoding IProtocol.Encoding
+            {
+                get { return _encoding; }
+            }
+
+            bool IProtocol.CheckComplete(MemoryStream stream)
             {
                 var position = stream.Position;
                 stream.Seek(0, SeekOrigin.Begin);
                 var reader = new StreamReader(stream);
                 var text = reader.ReadToEnd();
                 stream.Seek(position, SeekOrigin.Begin);
-                return text.EndsWith(tag);
+                return text.EndsWith(_tag);
             }
 
-            public byte[] Decode(MemoryStream stream)
+            byte[] IProtocol.Decode(MemoryStream stream)
             {
                 stream.Seek(0, SeekOrigin.Begin);
                 var reader = new StreamReader(stream);
                 var data = reader.ReadToEnd();
-                if (!data.EndsWith(tag))
+                if (!data.EndsWith(_tag))
                     throw new InvalidOperationException();
-                return Encoding.UTF8.GetBytes(data.Substring(0, data.Length - tag.Length));
+                return _encoding.GetBytes(data.Substring(0, data.Length - _tag.Length));
             }
 
-            public byte[] Encode(byte[] buffer)
+            byte[] IProtocol.Encode(byte[] buffer)
             {
-                return Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(buffer) + tag);
+                return _encoding.GetBytes(_encoding.GetString(buffer) + _tag);
             }
 
             #endregion
@@ -184,12 +246,17 @@ namespace FlexiFramework.Networking
 
             #region Implementation of IProtocol
 
-            public bool CheckComplete(MemoryStream stream)
+            Encoding IProtocol.Encoding
+            {
+                get { return Encoding.UTF8; }
+            }
+
+            bool IProtocol.CheckComplete(MemoryStream stream)
             {
                 return stream.Length >= length;
             }
 
-            public byte[] Decode(MemoryStream stream)
+            byte[] IProtocol.Decode(MemoryStream stream)
             {
                 if (stream.Length < length)
                     throw new InvalidOperationException();
@@ -198,7 +265,7 @@ namespace FlexiFramework.Networking
                 return reader.ReadBytes(length);
             }
 
-            public byte[] Encode(byte[] buffer)
+            byte[] IProtocol.Encode(byte[] buffer)
             {
                 if (buffer.Length > length)
                     throw new InvalidOperationException();
@@ -208,6 +275,69 @@ namespace FlexiFramework.Networking
             }
 
             #endregion
+        }
+
+        private sealed class FrameProtocol : IProtocol
+        {
+            #region Implementation of IProtocol
+
+            Encoding IProtocol.Encoding
+            {
+                get { return Encoding.UTF8; }
+            }
+
+            bool IProtocol.CheckComplete(MemoryStream stream)
+            {
+                if (stream.Length < sizeof(int))
+                    return false;
+                var position = stream.Position;
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                var head = reader.ReadBytes(sizeof(int));
+                var length = ToLittleEndian(head);
+                stream.Seek(position, SeekOrigin.Begin);
+                return stream.Length >= length;
+            }
+
+            byte[] IProtocol.Decode(MemoryStream stream)
+            {
+                if (stream.Length < sizeof(int))
+                    throw new InvalidOperationException();
+                stream.Seek(0, SeekOrigin.Begin);
+                var reader = new BinaryReader(stream);
+                var head = reader.ReadBytes(sizeof (int));
+                var length = ToLittleEndian(head);
+                if (length > stream.Length)
+                    throw new InvalidOperationException();
+                return reader.ReadBytes(length - sizeof(int));
+            }
+
+            byte[] IProtocol.Encode(byte[] buffer)
+            {
+                var length = buffer.Length + sizeof (int);
+                var head = ToBigEndian(length);
+                var output = new byte[length];
+                head.CopyTo(output, 0);
+                buffer.CopyTo(output, sizeof(int));
+                return output;
+            }
+
+            #endregion
+
+            byte[] ToBigEndian(int value)
+            {
+                byte[] bytes = BitConverter.GetBytes(value);
+                if (BitConverter.IsLittleEndian)
+                    Array.Reverse(bytes);
+                return bytes;
+            }
+
+            int ToLittleEndian(byte[] bytes)
+            {
+                if (BitConverter.IsLittleEndian)
+                    Array.Reverse(bytes);
+                return BitConverter.ToInt32(bytes, 0);
+            }
         }
     }
 }

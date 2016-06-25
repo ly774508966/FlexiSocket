@@ -24,6 +24,7 @@
 // Project source: https://github.com/theoxuan/FlexiSocket
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -47,6 +48,11 @@ namespace FlexiFramework.Networking
 
         public string IP { get; private set; }
 
+        bool ISocketClient.IsConnected
+        {
+            get { return _socket.Connected; }
+        }
+
         public event ConnectedCallback Connected;
 
         public event ReceivedCallback Received;
@@ -62,6 +68,7 @@ namespace FlexiFramework.Networking
         {
             IP = ip;
         }
+
 
         void ISocketClient.Connect()
         {
@@ -144,7 +151,6 @@ namespace FlexiFramework.Networking
                     var data = state.protocol.Decode(state.stream);
                     state.Dispose();
                     OnReceived(true, null, args.SocketError, data);
-                    OnReceivedString(true, null, args.SocketError, data);
                     StartReceive(null, new StateObject(state.handler, state.protocol));
                 }
             }
@@ -152,7 +158,7 @@ namespace FlexiFramework.Networking
 
         public void Send(string message)
         {
-            Send(Encoding.UTF8.GetBytes(message));
+            Send(_protocol.Encoding.GetBytes(message));
         }
 
         public void Send(byte[] message)
@@ -190,7 +196,7 @@ namespace FlexiFramework.Networking
 
         AsyncSend ISocketClient.SendAsync(string message)
         {
-            return ((ISocketClient) this).SendAsync(Encoding.UTF8.GetBytes(message));
+            return ((ISocketClient) this).SendAsync(_protocol.Encoding.GetBytes(message));
         }
 
         private void SentCallback(object sender, SocketAsyncEventArgs args)
@@ -246,6 +252,17 @@ namespace FlexiFramework.Networking
         private void DisconnectCallback(object sender, SocketAsyncEventArgs args)
         {
             OnDisconnected(true, null);
+        }
+
+        IEnumerator ISocketClient.ReceiveLoop()
+        {
+            while (((ISocketClient) this).IsConnected)
+            {
+                var receive = ((ISocketClient) this).ReceiveAsync();
+                yield return receive;
+                if (!receive.IsSuccessful)
+                    break;
+            }
         }
 
         #endregion
@@ -329,7 +346,7 @@ namespace FlexiFramework.Networking
 
         void ISocketServer.SendToAll(string message)
         {
-            ((ISocketServer) this).SendToAll(Encoding.UTF8.GetBytes(message));
+            ((ISocketServer) this).SendToAll(_protocol.Encoding.GetBytes(message));
         }
 
         private void StartAccept(SocketAsyncEventArgs args)
@@ -412,7 +429,6 @@ namespace FlexiFramework.Networking
             }
         }
 
-
         /// <summary>
         /// Create a client
         /// </summary>
@@ -451,14 +467,15 @@ namespace FlexiFramework.Networking
 
         private void OnReceived(bool success, Exception exception, SocketError error, byte[] message)
         {
-            var handler = Received;
-            if (handler != null) handler(success, exception, error, message);
-        }
-
-        private void OnReceivedString(bool success, Exception exception, SocketError error, byte[] message)
-        {
-            var handler = ReceivedString;
-            if (handler != null) handler(success, exception, error, Encoding.UTF8.GetString(message));
+            if (message == null)
+                Close();
+            else
+            {
+                var handler = Received;
+                if (handler != null) handler(success, exception, error, message);
+                var strHandler = ReceivedString;
+                if (strHandler != null) strHandler(success, exception, error, _protocol.Encoding.GetString(message));
+            }
         }
 
         private void OnDisconnected(bool success, Exception exception)

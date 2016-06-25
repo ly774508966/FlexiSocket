@@ -37,7 +37,6 @@ namespace FlexiFramework.Networking
     public sealed class AsyncReceive : AsyncIOOperation
     {
         public event ReceivedCallback Completed;
-        public event ReceivedStringCallback CompletedAsString;
 
         /// <summary>
         /// Received data
@@ -54,7 +53,6 @@ namespace FlexiFramework.Networking
 
         public AsyncReceive(Socket socket, IProtocol protocol) : base(socket, protocol)
         {
-            
         }
 
         #region Overrides of AsyncSocketOperation
@@ -77,7 +75,7 @@ namespace FlexiFramework.Networking
             }
         }
 
-        protected internal override IEnumerator GetEnumerator()
+        protected override IEnumerator GetEnumerator()
         {
             using (var stream = new MemoryStream())
             {
@@ -94,7 +92,6 @@ namespace FlexiFramework.Networking
                         if (Error != SocketError.Success)
                         {
                             OnCompleted(false, Exception, Error, null);
-                            OnCompletedAsString(false, Exception, Error, null);
                             yield break;
                         }
                     }
@@ -102,7 +99,6 @@ namespace FlexiFramework.Networking
                     {
                         Exception = ex;
                         OnCompleted(false, Exception, Error, null);
-                        OnCompletedAsString(false, Exception, Error, null);
                         yield break;
                     }
 
@@ -112,13 +108,15 @@ namespace FlexiFramework.Networking
                     try
                     {
                         var length = socket.EndReceive(ar);
-                        stream.Write(buffer, 0, length);
+                        if (length > 0)
+                            stream.Write(buffer, 0, length);
+                        else
+                            OnCompleted(false, null, SocketError.Disconnecting, null);
                     }
                     catch (Exception ex)
                     {
                         Exception = ex;
                         OnCompleted(false, Exception, Error, null);
-                        OnCompletedAsString(false, Exception, Error, null);
                         yield break;
                     }
                 } while (!Protocol.CheckComplete(stream));
@@ -128,7 +126,6 @@ namespace FlexiFramework.Networking
 
 
             OnCompleted(true, Exception, Error, Data);
-            OnCompletedAsString(true, Exception, Error, Encoding.UTF8.GetString(Data));
         }
 
         #endregion
@@ -136,12 +133,6 @@ namespace FlexiFramework.Networking
         private void OnCompleted(bool success, Exception exception, SocketError error, byte[] message)
         {
             var handler = Completed;
-            if (handler != null) handler(success, exception, error, message);
-        }
-
-        private void OnCompletedAsString(bool success, Exception exception, SocketError error, string message)
-        {
-            var handler = CompletedAsString;
             if (handler != null) handler(success, exception, error, message);
         }
     }

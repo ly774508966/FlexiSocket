@@ -23,6 +23,8 @@
 // *************************************************************************************************
 // Project source: https://github.com/theoxuan/FlexiSocket
 
+using System.Collections;
+
 namespace FlexiFramework.Networking
 {
     /// <summary>
@@ -69,6 +71,11 @@ namespace FlexiFramework.Networking
         /// Server listening port
         /// </summary>
         int Port { get; }
+
+        /// <summary>
+        /// If client is connected
+        /// </summary>
+        bool IsConnected { get; }
 
         /// <summary>
         /// Close the client
@@ -128,5 +135,11 @@ namespace FlexiFramework.Networking
         /// </summary>
         /// <returns></returns>
         AsyncDisconnect DisconnectAsync();
+
+        /// <summary>
+        /// Keep receiving untill disconnected or failed
+        /// </summary>
+        /// <returns></returns>
+        IEnumerator ReceiveLoop();
     }
 }
