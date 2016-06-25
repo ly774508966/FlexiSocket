@@ -34,6 +34,9 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncDisconnect : AsyncSocketOperation
     {
+        /// <summary>
+        /// Disconnected callback
+        /// </summary>
         public event DisconnectedCallback Completed;
 
         public AsyncDisconnect(Socket socket) : base(socket)

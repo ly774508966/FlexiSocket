@@ -33,6 +33,9 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Client unique id
         /// </summary>
+        /// <remarks>
+        /// This will be different at each runtime, so don't use this for authetication
+        /// </remarks>
         int ID { get; }
 
         /// <summary>
@@ -43,13 +46,23 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Send message to this client token
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Raw message</param>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="ISocketServer.SentToClient"/> will be invoked on the async thread if you call this
+        /// </remarks>
         void Send(byte[] message);
 
         /// <summary>
         /// Send message to this client token
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">String message</param>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="ISocketServer.SentToClient"/> will be invoked on the async thread if you call this
+        /// </remarks>
         void Send(string message);
     }
 }

@@ -37,6 +37,9 @@ namespace FlexiFramework.Networking
     {
         private readonly EndPoint _endPoint;
 
+        /// <summary>
+        /// Completed callback
+        /// </summary>
         public event ConnectedCallback Completed;
 
         public AsyncConnect(Socket socket, EndPoint endPoint) : base(socket)

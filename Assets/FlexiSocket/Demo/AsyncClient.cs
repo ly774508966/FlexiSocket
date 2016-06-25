@@ -16,37 +16,40 @@ public class AsyncClient : MonoBehaviour
 
     private IEnumerator Start()
     {
-        _client = FlexiSocket.Create("127.0.0.1", 1366, Protocol.LengthPrefix);
-        yield return new WaitForSeconds(1); // wait for server to startup
+        _client = FlexiSocket.Create("127.0.0.1", 1366, Protocols.BodyLengthPrefix);
+        yield return new WaitForSeconds(1); // wait for server to startup since bot server and clients are in the same scene
 
-        var connect = _client.ConnectAsync();
-        yield return connect;
-        if (!connect.IsSuccessful)
+        using (var connect = _client.ConnectAsync())
         {
-            Debug.LogException(connect.Exception);
-            yield break;
-        }
-        Debug.Log("Connected", this);
-        while (true)
-        {
-            var receive = _client.ReceiveAsync();
-            yield return receive;
-
-            if (!receive.IsSuccessful)
+            yield return connect;
+            if (!connect.IsSuccessful)
             {
-                if (receive.Exception != null)
-                    Debug.LogException(receive.Exception);
-                if (receive.Error != SocketError.Success)
-                    Debug.LogError(receive.Error);
-                _client.Close();
+                Debug.LogException(connect.Exception);
                 yield break;
             }
+            Debug.Log("Connected", this);
+        }
+       
+        while (_client.IsConnected)
+        {
+            using (var receive = _client.ReceiveAsync())
+            {
+                yield return receive;
 
-            Debug.Log("Client received: " + Encoding.UTF8.GetString(receive.Data), this);
+                if (!receive.IsSuccessful)
+                {
+                    if (receive.Exception != null)
+                        Debug.LogException(receive.Exception);
+                    if (receive.Error != SocketError.Success)
+                        Debug.LogError(receive.Error);
+                    _client.Close();
+                    yield break;
+                }
 
-            var msg = Encoding.UTF8.GetBytes("Hey I've got your message");
+                Debug.Log("Client received: " + Encoding.UTF8.GetString(receive.Data), this);
+            }
 
-            var send = _client.SendAsync(msg);
+            var send = _client.SendAsync("Hey I've got your message");
             yield return send;
             if (!send.IsSuccessful)
             {

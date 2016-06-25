@@ -45,7 +45,7 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Received message from client callback
         /// </summary>
-        event ReceivedStringFromClientCallback ReceivedStringFromClient;
+        event ReceivedStringFromClientCallback ReceivedFromClientAsString;
 
         /// <summary>
         /// Client disconnected callback
@@ -73,6 +73,11 @@ namespace FlexiFramework.Networking
         int Port { get; }
 
         /// <summary>
+        /// If server is listenning for connections
+        /// </summary>
+        bool IsListening { get; }
+
+        /// <summary>
         /// Connected clients
         /// </summary>
         ReadOnlyCollection<ISocketClientToken> Clients { get; }
@@ -80,12 +85,27 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Close the server
         /// </summary>
+        /// <remarks>
+        /// <see cref="Closed"/> will be invoked on main thread if you call this
+        /// <para/>
+        /// Both sending and receiving will be shutdown
+        /// </remarks>
         void Close();
 
         /// <summary>
         /// Start listening
         /// </summary>
         /// <param name="backlog">Max connection</param>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="ClientConnected"/> will be invoked on main thread when a client is accepted
+        /// <para/>
+        /// <see cref="ReceivedFromClient"/> and <see cref="ReceivedFromClientAsString"/>  will be invoked on main thread when a message from a client is received
+        /// <para/>
+        /// <see cref="ClientDisconnected"/> will be invoked on main thread when a client is disconnected
+        /// <para/>
+        /// </remarks>
         void StartListen(int backlog);
 
         /// <summary>
@@ -93,7 +113,9 @@ namespace FlexiFramework.Networking
         /// </summary>
         /// <param name="message">Message</param>
         /// <remarks>
-        /// This won't trigger <see cref="SentToClient"/>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="SentToClient"/> will not be invoked when you call this
         /// </remarks>
         void SendToAll(byte[] message);
 
@@ -102,7 +124,9 @@ namespace FlexiFramework.Networking
         /// </summary>
         /// <param name="message">Message</param>
         /// <remarks>
-        /// This won't trigger <see cref="SentToClient"/>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="SentToClient"/> will not be invoked when you call this
         /// </remarks>
         void SendToAll(string message);
     }

@@ -27,7 +27,6 @@ using System;
 using System.Collections;
 using System.IO;
 using System.Net.Sockets;
-using System.Text;
 
 namespace FlexiFramework.Networking
 {
@@ -36,6 +35,9 @@ namespace FlexiFramework.Networking
     /// </summary>
     public sealed class AsyncReceive : AsyncIOOperation
     {
+        /// <summary>
+        /// Completed callback
+        /// </summary>
         public event ReceivedCallback Completed;
 
         /// <summary>
@@ -44,11 +46,11 @@ namespace FlexiFramework.Networking
         public byte[] Data { get; private set; }
 
         /// <summary>
-        /// Received data
+        /// Received data parsed as string
         /// </summary>
         public string StringData
         {
-            get { return Encoding.UTF8.GetString(Data); }
+            get { return Protocol.Encoding.GetString(Data); }
         }
 
         public AsyncReceive(Socket socket, IProtocol protocol) : base(socket, protocol)
@@ -119,7 +121,7 @@ namespace FlexiFramework.Networking
                         OnCompleted(false, Exception, Error, null);
                         yield break;
                     }
-                } while (!Protocol.CheckComplete(stream));
+                } while (!Protocol.IsComplete(stream));
 
                 Data = Protocol.Decode(stream);
             }

@@ -30,7 +30,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using UnityEngine;
 
 namespace FlexiFramework.Networking
@@ -48,16 +47,13 @@ namespace FlexiFramework.Networking
 
         public string IP { get; private set; }
 
-        bool ISocketClient.IsConnected
-        {
-            get { return _socket.Connected; }
-        }
+        public bool IsConnected { get; private set; }
 
         public event ConnectedCallback Connected;
 
         public event ReceivedCallback Received;
 
-        public event ReceivedStringCallback ReceivedString;
+        public event ReceivedStringCallback ReceivedAsString;
 
         public event DisconnectedCallback Disconnected;
 
@@ -144,7 +140,7 @@ namespace FlexiFramework.Networking
             else
             {
                 state.stream.Write(state.buffer, 0, args.BytesTransferred);
-                if (!state.protocol.CheckComplete(state.stream)) //incompleted
+                if (!state.protocol.IsComplete(state.stream)) //incompleted
                     StartReceive(args, state);
                 else //completed
                 {
@@ -256,12 +252,14 @@ namespace FlexiFramework.Networking
 
         IEnumerator ISocketClient.ReceiveLoop()
         {
-            while (((ISocketClient) this).IsConnected)
+            while (IsConnected)
             {
-                var receive = ((ISocketClient) this).ReceiveAsync();
-                yield return receive;
-                if (!receive.IsSuccessful)
-                    break;
+                using (var receive = ((ISocketClient) this).ReceiveAsync())
+                {
+                    yield return receive;
+                    if (!receive.IsSuccessful)
+                        break;
+                }
             }
         }
 
@@ -282,6 +280,8 @@ namespace FlexiFramework.Networking
 
         public int Backlog { get; private set; }
 
+        public bool IsListening { get; private set; }
+
         ReadOnlyCollection<ISocketClientToken> ISocketServer.Clients
         {
             get
@@ -295,7 +295,7 @@ namespace FlexiFramework.Networking
 
         public event ReceivedFromClientCallback ReceivedFromClient;
 
-        public event ReceivedStringFromClientCallback ReceivedStringFromClient;
+        public event ReceivedStringFromClientCallback ReceivedFromClientAsString;
 
         public event ClientDisconnectedCallback ClientDisconnected;
 
@@ -328,6 +328,7 @@ namespace FlexiFramework.Networking
         void ISocketServer.StartListen(int backlog)
         {
             Backlog = backlog;
+            IsListening = true;
             _socket.Bind(new IPEndPoint(_ipv6 ? IPAddress.IPv6Any : IPAddress.Any, Port));
             _socket.Listen(backlog);
             StartAccept(null);
@@ -377,12 +378,12 @@ namespace FlexiFramework.Networking
                         if (success)
                             ReceivedFromClient(client, message);
                     };
-                if (ReceivedStringFromClient != null)
-                    client.ReceivedString +=
+                if (ReceivedFromClientAsString != null)
+                    client.ReceivedAsString +=
                         delegate(bool success, Exception exception, SocketError error, string message)
                         {
                             if (success)
-                                ReceivedStringFromClient(client, message);
+                                ReceivedFromClientAsString(client, message);
                         };
                 if (ClientDisconnected != null)
                 {
@@ -411,6 +412,7 @@ namespace FlexiFramework.Networking
         {
             try
             {
+                IsListening = false;
                 _socket.Shutdown(SocketShutdown.Both);
                 _socket.Close();
                 lock (_clients)
@@ -455,12 +457,15 @@ namespace FlexiFramework.Networking
 
         private void OnClosed()
         {
+            IsConnected = false;
+            IsListening = false;
             var handler = Closed;
             if (handler != null) handler();
         }
 
         private void OnConnected(bool success, Exception exception)
         {
+            IsConnected = true;
             var handler = Connected;
             if (handler != null) handler(success, exception);
         }
@@ -473,13 +478,14 @@ namespace FlexiFramework.Networking
             {
                 var handler = Received;
                 if (handler != null) handler(success, exception, error, message);
-                var strHandler = ReceivedString;
+                var strHandler = ReceivedAsString;
                 if (strHandler != null) strHandler(success, exception, error, _protocol.Encoding.GetString(message));
             }
         }
 
         private void OnDisconnected(bool success, Exception exception)
         {
+            IsConnected = false;
             var handler = Disconnected;
             if (handler != null) handler(success, exception);
         }

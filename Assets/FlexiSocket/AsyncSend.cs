@@ -35,6 +35,10 @@ namespace FlexiFramework.Networking
     public sealed class AsyncSend : AsyncIOOperation
     {
         private readonly byte[] _buffer;
+
+        /// <summary>
+        /// Send completed callback
+        /// </summary>
         public event SentCallback Completed;
 
         public AsyncSend(Socket socket, IProtocol protocol, byte[] data) : base(socket, protocol)

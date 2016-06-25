@@ -26,29 +26,58 @@
 using System;
 using System.IO;
 using System.Text;
-using UnityEngine;
 
 namespace FlexiFramework.Networking
 {
+    /// <summary>
+    /// Message protocol to encode/decode message, also ensure the received message to be complete and correct
+    /// </summary>
     public interface IProtocol
     {
         /// <summary>
-        /// Encoding
+        /// Encoding format
         /// </summary>
         Encoding Encoding { get; }
 
         /// <summary>
-        /// Check message
+        /// Check message's completeness
         /// </summary>
         /// <param name="stream">Message stream</param>
         /// <returns>True if complete</returns>
-        bool CheckComplete(MemoryStream stream);
+        /// <remarks>
+        /// You might need to reset the stream's <see cref="MemoryStream.Position"/> before checking, but make sure to set it back after checking
+        /// <para/>
+        /// Do not <see cref="MemoryStream.Close"/> or <see cref="MemoryStream.Dispose"/> the stream anyhow
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var position = stream.Position;
+        /// stream.Seek(0, SeekOrigin.Begin);
+        /// var reader = new BinaryReader(stream);
+        /// var length = reader.ReadInt32();
+        /// stream.Seek(position, SeekOrigin.Begin);
+        /// var completed = stream.Length &gt;= length + sizeof (int);
+        /// </code>
+        /// </example>
+        bool IsComplete(MemoryStream stream);
 
         /// <summary>
         /// Decode message
         /// </summary>
         /// <param name="stream">Message stream</param>
         /// <returns>Decoded data</returns>
+        /// <remarks>
+        /// You might need to reset the stream's <see cref="MemoryStream.Position"/> before checking
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// var position = stream.Position;
+        /// stream.Seek(0, SeekOrigin.Begin);
+        /// var reader = new BinaryReader(stream);
+        /// var length = reader.ReadInt32();
+        /// var message = reader.ReadBytes(length);
+        /// </code>
+        /// </example>
         byte[] Decode(MemoryStream stream);
 
         /// <summary>
@@ -59,13 +88,18 @@ namespace FlexiFramework.Networking
         byte[] Encode(byte[] buffer);
     }
 
-    public sealed class Protocol
+    /// <summary>
+    /// Pre-defined protocols
+    /// </summary>
+    public sealed class Protocols
     {
         /// <summary>
         /// Default protocol
         /// </summary>
         /// <remarks>
         /// No encoding/decoding and no packet checking
+        /// <para/>
+        /// Each packet will be dispatched directly
         /// </remarks>
         public static readonly IProtocol None = new DefaultProtocol();
 
@@ -73,15 +107,17 @@ namespace FlexiFramework.Networking
         /// Head + Body structure type
         /// </summary>
         /// <remarks>
-        /// The message head is a 4-byte int type which represents the length of the coming message
+        /// The message head is a 4-byte <seealso cref="int"/> which represents the length of the body
         /// </remarks>
-        public static readonly IProtocol LengthPrefix = new LengthPrefixProtocol();
+        public static readonly IProtocol BodyLengthPrefix = new BodyLengthPrefixProtocol();
 
         /// <summary>
-        /// Body + TerminatTag structure type
+        /// Body + Terminate Tag structure type
         /// </summary>
         /// <remarks>
         /// The message tail is <c>&lt;EOF&gt;</c> which represents the end of a string message
+        /// <para/>
+        /// To specify a custom tag, you might use <see cref="StringTerminatedBy"/>
         /// </remarks>
         public static readonly IProtocol StringTerminated = new StringTerminatedProtocol("<EOF>", Encoding.UTF8);
 
@@ -89,12 +125,14 @@ namespace FlexiFramework.Networking
         /// Head + Body structure type
         /// </summary>
         /// <remarks>
-        /// The message head is a 4-byte int type which represents the length of the coming message's length plus 4
+        /// The message head is a 4-byte <see cref="int"/> which represents the total length, i.e. head's length(4) plus body's length
+        /// <para/>
+        /// In addition, it converts LittleEndian to BigEndian(for specific use like php's pack format http://php.net/manual/en/function.pack.php)
         /// </remarks>
-        public static readonly IProtocol Frame = new FrameProtocol();
+        public static readonly IProtocol TotalLengthPrefix = new TotalLengthPrefixProtocol();
 
         /// <summary>
-        /// Body + TerminatTag structure type
+        /// Body + Terminate Tag structure type
         /// </summary>
         /// <param name="tag">End tag</param>
         /// <param name="encoding">Encoding</param>
@@ -111,6 +149,9 @@ namespace FlexiFramework.Networking
         /// Fixed-length structure type
         /// </summary>
         /// <param name="length">Message length</param>
+        /// <remarks>
+        /// Each message has a fixed length of the specified value
+        /// </remarks>
         /// <returns></returns>
         public static IProtocol FixedLengthOf(int length)
         {
@@ -123,10 +164,10 @@ namespace FlexiFramework.Networking
 
             Encoding IProtocol.Encoding
             {
-                get { return Encoding.Default;}
+                get { return Encoding.Default; }
             }
 
-            bool IProtocol.CheckComplete(MemoryStream stream)
+            bool IProtocol.IsComplete(MemoryStream stream)
             {
                 return true;
             }
@@ -144,7 +185,7 @@ namespace FlexiFramework.Networking
             #endregion
         }
 
-        private sealed class LengthPrefixProtocol : IProtocol
+        private sealed class BodyLengthPrefixProtocol : IProtocol
         {
             #region Implementation of IProtocol
 
@@ -153,7 +194,7 @@ namespace FlexiFramework.Networking
                 get { return Encoding.UTF8; }
             }
 
-            bool IProtocol.CheckComplete(MemoryStream stream)
+            bool IProtocol.IsComplete(MemoryStream stream)
             {
                 if (stream.Length < sizeof (int))
                     return false;
@@ -207,7 +248,7 @@ namespace FlexiFramework.Networking
                 get { return _encoding; }
             }
 
-            bool IProtocol.CheckComplete(MemoryStream stream)
+            bool IProtocol.IsComplete(MemoryStream stream)
             {
                 var position = stream.Position;
                 stream.Seek(0, SeekOrigin.Begin);
@@ -251,7 +292,7 @@ namespace FlexiFramework.Networking
                 get { return Encoding.UTF8; }
             }
 
-            bool IProtocol.CheckComplete(MemoryStream stream)
+            bool IProtocol.IsComplete(MemoryStream stream)
             {
                 return stream.Length >= length;
             }
@@ -277,7 +318,7 @@ namespace FlexiFramework.Networking
             #endregion
         }
 
-        private sealed class FrameProtocol : IProtocol
+        private sealed class TotalLengthPrefixProtocol : IProtocol
         {
             #region Implementation of IProtocol
 
@@ -286,14 +327,14 @@ namespace FlexiFramework.Networking
                 get { return Encoding.UTF8; }
             }
 
-            bool IProtocol.CheckComplete(MemoryStream stream)
+            bool IProtocol.IsComplete(MemoryStream stream)
             {
-                if (stream.Length < sizeof(int))
+                if (stream.Length < sizeof (int))
                     return false;
                 var position = stream.Position;
                 stream.Seek(0, SeekOrigin.Begin);
                 var reader = new BinaryReader(stream);
-                var head = reader.ReadBytes(sizeof(int));
+                var head = reader.ReadBytes(sizeof (int));
                 var length = ToLittleEndian(head);
                 stream.Seek(position, SeekOrigin.Begin);
                 return stream.Length >= length;
@@ -301,7 +342,7 @@ namespace FlexiFramework.Networking
 
             byte[] IProtocol.Decode(MemoryStream stream)
             {
-                if (stream.Length < sizeof(int))
+                if (stream.Length < sizeof (int))
                     throw new InvalidOperationException();
                 stream.Seek(0, SeekOrigin.Begin);
                 var reader = new BinaryReader(stream);
@@ -309,7 +350,7 @@ namespace FlexiFramework.Networking
                 var length = ToLittleEndian(head);
                 if (length > stream.Length)
                     throw new InvalidOperationException();
-                return reader.ReadBytes(length - sizeof(int));
+                return reader.ReadBytes(length - sizeof (int));
             }
 
             byte[] IProtocol.Encode(byte[] buffer)
@@ -318,21 +359,21 @@ namespace FlexiFramework.Networking
                 var head = ToBigEndian(length);
                 var output = new byte[length];
                 head.CopyTo(output, 0);
-                buffer.CopyTo(output, sizeof(int));
+                buffer.CopyTo(output, sizeof (int));
                 return output;
             }
 
             #endregion
 
-            byte[] ToBigEndian(int value)
+            private byte[] ToBigEndian(int value)
             {
-                byte[] bytes = BitConverter.GetBytes(value);
+                var bytes = BitConverter.GetBytes(value);
                 if (BitConverter.IsLittleEndian)
                     Array.Reverse(bytes);
                 return bytes;
             }
 
-            int ToLittleEndian(byte[] bytes)
+            private int ToLittleEndian(byte[] bytes)
             {
                 if (BitConverter.IsLittleEndian)
                     Array.Reverse(bytes);

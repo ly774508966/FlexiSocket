@@ -41,14 +41,14 @@ public class HyperClient : MonoBehaviour
     private void Start()
     {
         //client = FlexiSocket.Create(ip, port, Protocol.StringTerminatedBy("\n", Encoding.UTF8));
-        client = FlexiSocket.Create(ip, port, Protocol.Frame);
+        client = FlexiSocket.Create(ip, port, Protocols.TotalLengthPrefix);
         client.Connected += ClientOnConnected;
         client.Disconnected += ClientOnDisconnected;
-        client.ReceivedString += ClientOnReceivedString;
+        client.ReceivedAsString += ClientOnReceivedAsString;
         client.Sent += ClientOnSent;
     }
 
-    private void ClientOnReceivedString(bool success, Exception exception, SocketError error, string message)
+    private void ClientOnReceivedAsString(bool success, Exception exception, SocketError error, string message)
     {
         Debug.Log("Receiving result: " + success);
         if (success)

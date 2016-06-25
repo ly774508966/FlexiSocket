@@ -32,6 +32,9 @@ namespace FlexiFramework.Networking
     /// </summary>
     public abstract class AsyncIOOperation : AsyncSocketOperation
     {
+        /// <summary>
+        /// Message protocol
+        /// </summary>
         protected IProtocol Protocol { get; private set; }
 
         /// <summary>

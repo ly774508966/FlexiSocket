@@ -45,7 +45,7 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Received message from server callback
         /// </summary>
-        event ReceivedStringCallback ReceivedString;
+        event ReceivedStringCallback ReceivedAsString;
 
         /// <summary>
         /// Disconnected from server callback
@@ -80,66 +80,123 @@ namespace FlexiFramework.Networking
         /// <summary>
         /// Close the client
         /// </summary>
+        /// <remarks>
+        /// <see cref="Closed"/> will be invoked on main thread if you call this
+        /// <para/>
+        /// Both sending and receiving will be shutdown
+        /// </remarks>
         void Close();
 
         /// <summary>
         /// Connect to server
         /// </summary>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Connected"/> will be invoked on the async thread if you call this
+        /// <para/>
+        /// If successful, a receiving loop will be started and <see cref="Received"/>/<see cref="ReceivedAsString"/> will be invoked when a message is received
+        /// </remarks>
         void Connect();
 
         /// <summary>
         /// Connect to server
         /// </summary>
-        /// <returns></returns>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Connected"/> will be invoked on main thread if you call this
+        /// </remarks>
         AsyncConnect ConnectAsync();
 
         /// <summary>
         /// Receive messages from server
         /// </summary>
-        /// <returns></returns>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Received"/> will be invoked on main thread if you call this
+        /// </remarks>
         AsyncReceive ReceiveAsync();
 
         /// <summary>
         /// Send message to server
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">Raw messaged</param>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Sent"/> will be invoked on the async thread if you call this
+        /// </remarks>
         void Send(byte[] message);
 
         /// <summary>
         /// Send message to server
         /// </summary>
-        /// <param name="message"></param>
+        /// <param name="message">String message</param>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Sent"/> will be invoked on the async thread if you call this
+        /// </remarks>
         void Send(string message);
 
         /// <summary>
         /// Send message to server
         /// </summary>
-        /// <param name="message"></param>
-        /// <returns></returns>
+        /// <param name="message">Raw messgae</param>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Sent"/> will be invoked on main thread if you call this
+        /// </remarks>
         AsyncSend SendAsync(byte[] message);
 
         /// <summary>
         /// Send message to server
         /// </summary>
-        /// <param name="message"></param>
-        /// <returns></returns>
+        /// <param name="message">String message</param>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Sent"/> will be invoked on main thread if you call this
+        /// </remarks>
         AsyncSend SendAsync(string message);
 
         /// <summary>
         /// Disconnect from server
         /// </summary>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Disconnected"/> will be invoked on the async thread if you call this
+        /// </remarks>
         void Disconnect();
 
         /// <summary>
         /// Disconnect from server
         /// </summary>
-        /// <returns></returns>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Disconnected"/> will be invoked on main thread if you <code>yield</code> this or call <see cref="UnityEngine.MonoBehaviour.StartCoroutine(IEnumerator)"/> with the returned operation
+        /// </remarks>
         AsyncDisconnect DisconnectAsync();
 
         /// <summary>
         /// Keep receiving untill disconnected or failed
         /// </summary>
-        /// <returns></returns>
+        /// <returns>An async operation</returns>
+        /// <remarks>
+        /// This won't block the main thread
+        /// <para/>
+        /// <see cref="Received"/> and <see cref="ReceivedAsString"/> will be invoked on main thread if you <code>yield</code> this or call <see cref="UnityEngine.MonoBehaviour.StartCoroutine(IEnumerator)"/> with the returned operation
+        /// </remarks>
         IEnumerator ReceiveLoop();
     }
 }

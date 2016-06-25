@@ -16,14 +16,14 @@ public class Server : MonoBehaviour
     // Use this for initialization
     private IEnumerator Start()
     {
-        _server = FlexiSocket.Create(1366, Protocol.LengthPrefix);
+        _server = FlexiSocket.Create(1366, Protocols.BodyLengthPrefix);
         _server.ClientConnected += OnClientConnected;
         _server.ClientDisconnected += OnClientDisconnected;
         _server.ReceivedFromClient += OnReceivedFromClient;
         _server.SentToClient += OnSentToClient;
         _server.StartListen(10);
 
-        while (true)
+        while (_server.IsListening)
         {
             yield return new WaitForSeconds(Random.Range(1, 5));
             foreach (var client in _server.Clients)
