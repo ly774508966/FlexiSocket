@@ -78,6 +78,11 @@ namespace FlexiFramework.Networking
         bool IsListening { get; }
 
         /// <summary>
+        /// If ipv6 is enabled
+        /// </summary>
+        bool IPv6 { get; }
+
+        /// <summary>
         /// Connected clients
         /// </summary>
         ReadOnlyCollection<ISocketClientToken> Clients { get; }

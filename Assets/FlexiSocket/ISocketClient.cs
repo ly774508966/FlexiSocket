@@ -24,6 +24,7 @@
 // Project source: https://github.com/theoxuan/FlexiSocket
 
 using System.Collections;
+using System.Net;
 
 namespace FlexiFramework.Networking
 {
@@ -63,9 +64,9 @@ namespace FlexiFramework.Networking
         event ClosedCallback Closed;
 
         /// <summary>
-        /// Server ip address
+        /// Server address
         /// </summary>
-        string IP { get; }
+        IPAddress Address { get; }
 
         /// <summary>
         /// Server listening port

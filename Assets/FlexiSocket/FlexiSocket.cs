@@ -37,7 +37,6 @@ namespace FlexiFramework.Networking
     internal sealed class FlexiSocket : ISocketClient, ISocketServer, ISocketClientToken
     {
         private readonly Socket _socket;
-        private readonly bool _ipv6;
         private readonly IProtocol _protocol;
 
         public int Port { get; private set; }
@@ -45,7 +44,7 @@ namespace FlexiFramework.Networking
 
         #region client
 
-        public string IP { get; private set; }
+        public IPAddress Address { get; private set; }
 
         public bool IsConnected { get; private set; }
 
@@ -60,9 +59,26 @@ namespace FlexiFramework.Networking
         public event SentCallback Sent;
 
         private FlexiSocket(string ip, int port, IProtocol protocol)
-            : this(port, protocol)
         {
-            IP = ip;
+            IPAddress addres;
+            if (!IPAddress.TryParse(ip, out addres)) //not ipv4/ipv6
+            {
+                try
+                {
+                    var addresses = Dns.GetHostAddresses(ip);
+                    addres = addresses[0]; //TODO
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                    throw new ArgumentException("ip", ex);
+                }
+            }
+           
+            Address = addres;
+            Port = port;
+            _protocol = protocol;
+            _socket = new Socket(Address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
         }
 
 
@@ -71,7 +87,7 @@ namespace FlexiFramework.Networking
             var args = new SocketAsyncEventArgs();
             args.Completed += ConnectCallback;
             args.UserToken = _socket;
-            args.RemoteEndPoint = new IPEndPoint(IPAddress.Parse(IP), Port);
+            args.RemoteEndPoint = new IPEndPoint(Address, Port);
             try
             {
                 _socket.ConnectAsync(args);
@@ -85,13 +101,18 @@ namespace FlexiFramework.Networking
         private void ConnectCallback(object sender, SocketAsyncEventArgs args)
         {
             var socket = (Socket) args.UserToken;
-            StartReceive(null, new StateObject(socket, _protocol));
-            OnConnected(true, null);
+            if (args.SocketError != SocketError.Success)
+                OnConnected(false, null);
+            else
+            {
+                StartReceive(null, new StateObject(socket, _protocol));
+                OnConnected(true, null);
+            }
         }
 
         AsyncConnect ISocketClient.ConnectAsync()
         {
-            var @async = new AsyncConnect(_socket, new IPEndPoint(IPAddress.Parse(IP), Port));
+            var @async = new AsyncConnect(_socket, new IPEndPoint(Address, Port));
             @async.Completed += OnConnected;
             return @async;
         }
@@ -198,7 +219,12 @@ namespace FlexiFramework.Networking
         private void SentCallback(object sender, SocketAsyncEventArgs args)
         {
             var state = (StateObject) args.UserToken;
-            if (args.SocketError == SocketError.Success)
+            if (args.SocketError != SocketError.Success)
+            {
+                state.Dispose();
+                OnSent(false, null, args.SocketError);
+            }
+            else
             {
                 if (args.BytesTransferred <= 0)
                 {
@@ -216,11 +242,6 @@ namespace FlexiFramework.Networking
                         OnSent(true, null, args.SocketError);
                     }
                 }
-            }
-            else
-            {
-                state.Dispose();
-                OnSent(false, null, args.SocketError);
             }
         }
 
@@ -282,6 +303,8 @@ namespace FlexiFramework.Networking
 
         public bool IsListening { get; private set; }
 
+        public bool IPv6 { get; private set; }
+
         ReadOnlyCollection<ISocketClientToken> ISocketServer.Clients
         {
             get
@@ -301,22 +324,23 @@ namespace FlexiFramework.Networking
 
         public event SentToClientCallback SentToClient;
 
-        private FlexiSocket(int port, IProtocol protocol)
+        private FlexiSocket(int port, IProtocol protocol, bool ipv6)
         {
+            if (ipv6)
+            {
+                if (!Socket.OSSupportsIPv6)
+                    throw new NotSupportedException("IPv6 is not supported on this OS");
+            }
+            else
+            {
+                if (!Socket.SupportsIPv4)
+                    throw new NotSupportedException("IPv6 is not supported on this OS");
+            }
             Port = port;
             _protocol = protocol;
-            _socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
-            try
-            {
-                _socket.SetSocketOption(SocketOptionLevel.IPv6, (SocketOptionName) 27, 0);
-                _ipv6 = true;
-            }
-            catch (SocketException exception)
-            {
-                Debug.LogWarning(exception.Message);
-                _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-                _ipv6 = false;
-            }
+            IPv6 = ipv6;
+            _socket = new Socket(ipv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork, SocketType.Stream,
+                ProtocolType.Tcp);
         }
 
         private FlexiSocket(Socket socket, IProtocol protocol)
@@ -329,7 +353,7 @@ namespace FlexiFramework.Networking
         {
             Backlog = backlog;
             IsListening = true;
-            _socket.Bind(new IPEndPoint(_ipv6 ? IPAddress.IPv6Any : IPAddress.Any, Port));
+            _socket.Bind(new IPEndPoint(IPv6 ? IPAddress.IPv6Any : IPAddress.Any, Port));
             _socket.Listen(backlog);
             StartAccept(null);
         }
@@ -412,7 +436,6 @@ namespace FlexiFramework.Networking
         {
             try
             {
-                IsListening = false;
                 _socket.Shutdown(SocketShutdown.Both);
                 _socket.Close();
                 lock (_clients)
@@ -449,10 +472,11 @@ namespace FlexiFramework.Networking
         /// </summary>
         /// <param name="port">Listening port</param>
         /// <param name="protocol">Protocol</param>
+        /// <param name="ipv6">Use ipv6</param>
         /// <returns>Created server</returns>
-        public static ISocketServer Create(int port, IProtocol protocol)
+        public static ISocketServer Create(int port, IProtocol protocol, bool ipv6)
         {
-            return new FlexiSocket(port, protocol);
+            return new FlexiSocket(port, protocol, ipv6);
         }
 
         private void OnClosed()

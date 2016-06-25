@@ -16,7 +16,7 @@ public class AsyncClient : MonoBehaviour
 
     private IEnumerator Start()
     {
-        _client = FlexiSocket.Create("127.0.0.1", 1366, Protocols.BodyLengthPrefix);
+        _client = FlexiSocket.Create("::1", 1366, Protocols.BodyLengthPrefix); //ipv6
         yield return new WaitForSeconds(1); // wait for server to startup since bot server and clients are in the same scene
 
         using (var connect = _client.ConnectAsync())

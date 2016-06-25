@@ -25,7 +25,6 @@
 
 using System;
 using System.Net.Sockets;
-using System.Text;
 using FlexiFramework.Networking;
 using UnityEngine;
 using UnityEngine.UI;
