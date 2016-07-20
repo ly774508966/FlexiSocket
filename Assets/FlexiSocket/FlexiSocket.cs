@@ -395,7 +395,6 @@ namespace FlexiFramework.Networking
                 var client = new FlexiSocket(args.AcceptSocket, _protocol);
                 lock (_clients)
                     _clients.Add(client);
-                StartReceive(null, new StateObject(_socket, _protocol));
                 if (ReceivedFromClient != null)
                     client.Received += delegate(bool success, Exception exception, SocketError error, byte[] message)
                     {
@@ -426,6 +425,7 @@ namespace FlexiFramework.Networking
                         };
                 if (ClientConnected != null)
                     ClientConnected(client);
+                client.StartReceive(null, new StateObject(client._socket, _protocol));
                 StartAccept(args);
             }
         }
