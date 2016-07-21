@@ -30,7 +30,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
-using UnityEngine;
 
 namespace FlexiFramework.Networking
 {
@@ -70,7 +69,6 @@ namespace FlexiFramework.Networking
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogException(ex);
                     throw new ArgumentException("ip", ex);
                 }
             }
